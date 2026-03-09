@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "id": "mapcanvas",
+  "version": "${version}",
+  "name": "MapCanvas",
+  "description": "",
+  "authors": [],
+  "contact": {},
+  "license": "All-Rights-Reserved",
+  "icon": "assets/mapcanvas/icon.png",
+  "environment": "*",
+  "entrypoints": {
+    "fabric-datagen": [
+      "com.washed.mapcanvas.client.MapcanvasDataGenerator"
+    ],
+    "client": [
+      "com.washed.mapcanvas.client.MapcanvasClient"
+    ],
+    "main": [
+      "com.washed.mapcanvas.Mapcanvas"
+    ]
+  },
+  "mixins": [
+    "mapcanvas.mixins.json",
+    {
+      "config": "mapcanvas.client.mixins.json",
+      "environment": "client"
+    }
+  ],
+  "depends": {
+    "fabricloader": ">=${loader_version}",
+    "fabric-api": "*",
+    "minecraft": "${minecraft_version}"
+  }
+}
