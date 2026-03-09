@@ -41,7 +41,58 @@ public class CanvasCommand {
                         .then(CommandManager.argument("player", StringArgumentType.string())
                                 .then(CommandManager.argument("name", StringArgumentType.string())
                                         .executes(ctx -> giveImage(ctx)))))
+                .then(CommandManager.literal("convert")
+                        .then(CommandManager.argument("name", StringArgumentType.string())
+                                .executes(ctx -> convertImage(ctx))))
+                .then(CommandManager.literal("help")
+                        .executes(ctx -> showHelp(ctx)))
         );
+    }
+
+    private static int showHelp(CommandContext<ServerCommandSource> ctx) {
+        ServerCommandSource source = ctx.getSource();
+        source.sendFeedback(() -> Text.literal("--- MapCanvas Commands ---").styled(s -> s.withColor(net.minecraft.util.Formatting.GOLD).withBold(true)), false);
+        source.sendFeedback(() -> Text.literal("/canvas add single <w> <h> <url>").styled(s -> s.withColor(net.minecraft.util.Formatting.YELLOW))
+                .append(Text.literal(" - Gives individual maps for a WxH grid").styled(s -> s.withColor(net.minecraft.util.Formatting.GRAY))), false);
+        source.sendFeedback(() -> Text.literal("/canvas add poster <w> <h> <url>").styled(s -> s.withColor(net.minecraft.util.Formatting.YELLOW))
+                .append(Text.literal(" - Gives 1 poster map that auto-fills a WxH grid").styled(s -> s.withColor(net.minecraft.util.Formatting.GRAY))), false);
+        source.sendFeedback(() -> Text.literal("/canvas name <n>").styled(s -> s.withColor(net.minecraft.util.Formatting.YELLOW))
+                .append(Text.literal(" - Saves the last created image").styled(s -> s.withColor(net.minecraft.util.Formatting.GRAY))), false);
+        source.sendFeedback(() -> Text.literal("/canvas list").styled(s -> s.withColor(net.minecraft.util.Formatting.YELLOW))
+                .append(Text.literal(" - Lists your saved images").styled(s -> s.withColor(net.minecraft.util.Formatting.GRAY))), false);
+        source.sendFeedback(() -> Text.literal("/canvas reload <n>").styled(s -> s.withColor(net.minecraft.util.Formatting.YELLOW))
+                .append(Text.literal(" - Re-downloads the image data for a saved image").styled(s -> s.withColor(net.minecraft.util.Formatting.GRAY))), false);
+        source.sendFeedback(() -> Text.literal("/canvas convert <n>").styled(s -> s.withColor(net.minecraft.util.Formatting.YELLOW))
+                .append(Text.literal(" - Converts individual maps in inventory into 1 poster map").styled(s -> s.withColor(net.minecraft.util.Formatting.GRAY))), false);
+        source.sendFeedback(() -> Text.literal("/canvas delete <n>").styled(s -> s.withColor(net.minecraft.util.Formatting.YELLOW))
+                .append(Text.literal(" - Deletes a saved image").styled(s -> s.withColor(net.minecraft.util.Formatting.GRAY))), false);
+        source.sendFeedback(() -> Text.literal("/canvas give <player> <n>").styled(s -> s.withColor(net.minecraft.util.Formatting.YELLOW))
+                .append(Text.literal(" - Gives your saved image to another player").styled(s -> s.withColor(net.minecraft.util.Formatting.GRAY))), false);
+        source.sendFeedback(() -> Text.literal("Cost: width x height empty maps per /canvas add").styled(s -> s.withColor(net.minecraft.util.Formatting.DARK_GRAY).withItalic(true)), false);
+        return 1;
+    }
+
+    private static int countEmptyMaps(net.minecraft.entity.player.PlayerEntity player) {
+        int count = 0;
+        for (int i = 0; i < player.getInventory().size(); i++) {
+            net.minecraft.item.ItemStack stack = player.getInventory().getStack(i);
+            if (stack.isOf(net.minecraft.item.Items.MAP)) {
+                count += stack.getCount();
+            }
+        }
+        return count;
+    }
+
+    private static void consumeEmptyMaps(net.minecraft.entity.player.PlayerEntity player, int amount) {
+        int remaining = amount;
+        for (int i = 0; i < player.getInventory().size() && remaining > 0; i++) {
+            net.minecraft.item.ItemStack stack = player.getInventory().getStack(i);
+            if (stack.isOf(net.minecraft.item.Items.MAP)) {
+                int take = Math.min(stack.getCount(), remaining);
+                stack.decrement(take);
+                remaining -= take;
+            }
+        }
     }
 
     private static int addImage(CommandContext<ServerCommandSource> ctx, boolean single) {
@@ -50,25 +101,35 @@ public class CanvasCommand {
         int height = IntegerArgumentType.getInteger(ctx, "height");
         ServerCommandSource source = ctx.getSource();
 
+        net.minecraft.entity.player.PlayerEntity player = source.getPlayer();
+        if (player == null) return 0;
+
+        int cost = width * height;
+        boolean creative = player.isCreative();
+        if (!creative) {
+            int held = countEmptyMaps(player);
+            if (held < cost) {
+                source.sendFeedback(() -> Text.literal(
+                        "You need " + cost + " empty map(s) to create a " + width + "x" + height + " canvas. You only have " + held + "."
+                ), false);
+                return 0;
+            }
+            consumeEmptyMaps(player, cost);
+            source.sendFeedback(() -> Text.literal(cost + " empty map(s) consumed."), false);
+        }
+
         new Thread(() -> {
             try {
                 source.sendFeedback(() -> Text.literal("Downloading image..."), false);
                 java.awt.image.BufferedImage image = ImageProcessor.downloadImage(url);
 
-                java.awt.image.BufferedImage resized;
-                if (single) {
-                    resized = ImageProcessor.resizeImage(image, 128, 128);
-                    resized = ImageProcessor.resizeImage(resized, width * 128, height * 128);
-                } else {
-                    resized = ImageProcessor.resizeImage(image, width * 128, height * 128);
-                }
+                java.awt.image.BufferedImage resized = ImageProcessor.resizeImage(image, width * 128, height * 128);
 
                 java.awt.image.BufferedImage[] sections = ImageProcessor.splitIntoMaps(resized, width, height);
 
                 source.getServer().execute(() -> {
                     try {
                         net.minecraft.server.world.ServerWorld world = source.getWorld();
-                        net.minecraft.entity.player.PlayerEntity player = source.getPlayer();
 
                         if (single) {
                             int[] mapIds = new int[sections.length];
@@ -79,14 +140,13 @@ public class CanvasCommand {
                             net.minecraft.item.ItemStack posterMap = MapCreator.createPosterMap(mapIds, width, height, world);
                             player.getInventory().insertStack(posterMap);
 
-                            // Save to data store
                             Map<String, Map<String, CanvasDataStore.CanvasEntry>> data = CanvasDataStore.load(source.getServer());
                             String playerKey = player.getUuidAsString();
                             data.computeIfAbsent(playerKey, k -> new HashMap<>())
                                     .put("__last__", new CanvasDataStore.CanvasEntry("__last__", url, true, width, height, mapIds));
                             CanvasDataStore.save(source.getServer(), data);
 
-                            source.sendFeedback(() -> Text.literal("Poster ready! Right click any corner of a " + width + "x" + height + " item frame grid. Use /canvas name <name> to save it."), false);
+                            source.sendFeedback(() -> Text.literal("Poster ready! Right click any corner of a " + width + "x" + height + " item frame grid. Use /canvas name <n> to save it."), false);
                         } else {
                             int[] mapIds = new int[sections.length];
                             for (int i = 0; i < sections.length; i++) {
@@ -106,21 +166,30 @@ public class CanvasCommand {
                                 }
                             }
 
-                            // Save to data store
                             Map<String, Map<String, CanvasDataStore.CanvasEntry>> data = CanvasDataStore.load(source.getServer());
                             String playerKey = player.getUuidAsString();
                             data.computeIfAbsent(playerKey, k -> new HashMap<>())
                                     .put("__last__", new CanvasDataStore.CanvasEntry("__last__", url, false, width, height, mapIds));
                             CanvasDataStore.save(source.getServer(), data);
 
-                            source.sendFeedback(() -> Text.literal("Got " + sections.length + " maps! Place them in a " + width + "x" + height + " grid. Use /canvas name <name> to save it."), false);
+                            source.sendFeedback(() -> Text.literal("Got " + sections.length + " maps! Place them in a " + width + "x" + height + " grid. Use /canvas name <n> to save it."), false);
                         }
                     } catch (Exception e) {
                         source.sendFeedback(() -> Text.literal("Failed: " + e.getMessage()), false);
                     }
                 });
             } catch (Exception e) {
-                source.sendFeedback(() -> Text.literal("Failed to download image: " + e.getMessage()), false);
+                if (!creative) {
+                    net.minecraft.item.ItemStack refund = new net.minecraft.item.ItemStack(net.minecraft.item.Items.MAP, cost);
+                    source.getServer().execute(() -> {
+                        if (!player.getInventory().insertStack(refund)) {
+                            player.dropItem(refund, false);
+                        }
+                    });
+                    source.sendFeedback(() -> Text.literal("Failed to download image: " + e.getMessage() + " Your maps have been refunded."), false);
+                } else {
+                    source.sendFeedback(() -> Text.literal("Failed to download image: " + e.getMessage()), false);
+                }
             }
         }).start();
 
@@ -217,37 +286,26 @@ public class CanvasCommand {
         }
 
         CanvasDataStore.CanvasEntry entry = images.get(name);
-        // Re-run addImage logic with saved parameters
         new Thread(() -> {
             try {
                 source.sendFeedback(() -> Text.literal("Reloading \"" + name + "\"..."), false);
                 java.awt.image.BufferedImage image = ImageProcessor.downloadImage(entry.url());
-                java.awt.image.BufferedImage resized;
-                if (entry.single()) {
-                    resized = ImageProcessor.resizeImage(image, 128, 128);
-                    resized = ImageProcessor.resizeImage(resized, entry.width() * 128, entry.height() * 128);
-                } else {
-                    resized = ImageProcessor.resizeImage(image, entry.width() * 128, entry.height() * 128);
-                }
+                java.awt.image.BufferedImage resized = ImageProcessor.resizeImage(image, entry.width() * 128, entry.height() * 128);
                 java.awt.image.BufferedImage[] sections = ImageProcessor.splitIntoMaps(resized, entry.width(), entry.height());
 
                 source.getServer().execute(() -> {
                     try {
                         net.minecraft.server.world.ServerWorld world = source.getWorld();
-                        if (entry.single()) {
-                            int[] mapIds = new int[sections.length];
-                            for (int i = 0; i < sections.length; i++) {
-                                net.minecraft.item.ItemStack mapStack = MapCreator.createMapFromImage(sections[i], world);
-                                mapIds[i] = mapStack.get(net.minecraft.component.DataComponentTypes.MAP_ID).id();
-                            }
-                            net.minecraft.item.ItemStack posterMap = MapCreator.createPosterMap(mapIds, entry.width(), entry.height(), world);
-                            player.getInventory().insertStack(posterMap);
-                        } else {
-                            for (java.awt.image.BufferedImage section : sections) {
-                                player.getInventory().insertStack(MapCreator.createMapFromImage(section, world));
-                            }
+                        int[] mapIds = new int[sections.length];
+                        for (int i = 0; i < sections.length; i++) {
+                            net.minecraft.item.ItemStack mapStack = MapCreator.createMapFromImage(sections[i], world);
+                            mapIds[i] = mapStack.get(net.minecraft.component.DataComponentTypes.MAP_ID).id();
                         }
-                        source.sendFeedback(() -> Text.literal("Reloaded \"" + name + "\" successfully!"), false);
+                        Map<String, Map<String, CanvasDataStore.CanvasEntry>> updatedData = CanvasDataStore.load(source.getServer());
+                        updatedData.get(player.getUuidAsString()).put(name,
+                                new CanvasDataStore.CanvasEntry(entry.name(), entry.url(), entry.single(), entry.width(), entry.height(), mapIds));
+                        CanvasDataStore.save(source.getServer(), updatedData);
+                        source.sendFeedback(() -> Text.literal("\"" + name + "\" reloaded successfully!"), false);
                     } catch (Exception e) {
                         source.sendFeedback(() -> Text.literal("Failed: " + e.getMessage()), false);
                     }
@@ -256,6 +314,64 @@ public class CanvasCommand {
                 source.sendFeedback(() -> Text.literal("Failed to reload: " + e.getMessage()), false);
             }
         }).start();
+        return 1;
+    }
+
+    private static int convertImage(CommandContext<ServerCommandSource> ctx) {
+        String name = StringArgumentType.getString(ctx, "name");
+        ServerCommandSource source = ctx.getSource();
+        net.minecraft.entity.player.PlayerEntity player = source.getPlayer();
+        if (player == null) return 0;
+
+        Map<String, Map<String, CanvasDataStore.CanvasEntry>> data = CanvasDataStore.load(source.getServer());
+        String playerKey = player.getUuidAsString();
+        Map<String, CanvasDataStore.CanvasEntry> images = data.get(playerKey);
+
+        if (images == null || !images.containsKey(name)) {
+            source.sendFeedback(() -> Text.literal("No image found with name \"" + name + "\"."), false);
+            return 0;
+        }
+
+        CanvasDataStore.CanvasEntry entry = images.get(name);
+        int[] requiredIds = entry.mapIds();
+
+        java.util.Map<Integer, Integer> idToSlot = new java.util.HashMap<>();
+        for (int i = 0; i < player.getInventory().size(); i++) {
+            net.minecraft.item.ItemStack stack = player.getInventory().getStack(i);
+            if (stack.isOf(net.minecraft.item.Items.FILLED_MAP)) {
+                net.minecraft.component.type.MapIdComponent mapId = stack.get(net.minecraft.component.DataComponentTypes.MAP_ID);
+                if (mapId != null) {
+                    for (int requiredId : requiredIds) {
+                        if (mapId.id() == requiredId && !idToSlot.containsKey(requiredId)) {
+                            idToSlot.put(requiredId, i);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        int missing = 0;
+        for (int id : requiredIds) {
+            if (!idToSlot.containsKey(id)) missing++;
+        }
+
+        if (missing > 0) {
+            int finalMissing = missing;
+            source.sendFeedback(() -> Text.literal("Missing " + finalMissing + " map(s) from \"" + name + "\". Make sure all maps are in your inventory."), false);
+            return 0;
+        }
+
+        for (int slot : idToSlot.values()) {
+            player.getInventory().getStack(slot).decrement(1);
+        }
+
+        net.minecraft.item.ItemStack posterMap = MapCreator.createPosterMap(requiredIds, entry.width(), entry.height(), source.getWorld());
+        if (!player.getInventory().insertStack(posterMap)) {
+            player.dropItem(posterMap, false);
+        }
+
+        source.sendFeedback(() -> Text.literal("Converted \"" + name + "\" into a poster map!"), false);
         return 1;
     }
 
@@ -286,13 +402,7 @@ public class CanvasCommand {
         new Thread(() -> {
             try {
                 java.awt.image.BufferedImage image = ImageProcessor.downloadImage(entry.url());
-                java.awt.image.BufferedImage resized;
-                if (entry.single()) {
-                    resized = ImageProcessor.resizeImage(image, 128, 128);
-                    resized = ImageProcessor.resizeImage(resized, entry.width() * 128, entry.height() * 128);
-                } else {
-                    resized = ImageProcessor.resizeImage(image, entry.width() * 128, entry.height() * 128);
-                }
+                java.awt.image.BufferedImage resized = ImageProcessor.resizeImage(image, entry.width() * 128, entry.height() * 128);
                 java.awt.image.BufferedImage[] sections = ImageProcessor.splitIntoMaps(resized, entry.width(), entry.height());
 
                 source.getServer().execute(() -> {
