@@ -3,10 +3,13 @@
   "id": "mapcanvas",
   "version": "${version}",
   "name": "MapCanvas",
-  "description": "",
-  "authors": [],
-  "contact": {},
-  "license": "All-Rights-Reserved",
+  "description": "Display images and animated GIFs on maps in item frames.",
+  "authors": ["washed469"],
+  "contact": {
+    "homepage": "https://github.com/washed469/MapCanvas",
+    "sources": "https://github.com/washed469/MapCanvas"
+  },
+  "license": "LGPL-3.0-only",
   "icon": "assets/mapcanvas/icon.png",
   "environment": "*",
   "entrypoints": {
