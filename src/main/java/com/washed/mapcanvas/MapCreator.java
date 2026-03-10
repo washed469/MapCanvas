@@ -26,31 +26,60 @@ public class MapCreator {
             }
         }
 
-
         ItemStack mapStack = new ItemStack(Items.FILLED_MAP);
         mapStack.set(DataComponentTypes.MAP_ID, mapId);
         return mapStack;
     }
 
-    public static net.minecraft.item.ItemStack createPosterMap(int[] mapIds, int width, int height, ServerWorld world) {
-        net.minecraft.item.ItemStack posterStack = new net.minecraft.item.ItemStack(net.minecraft.item.Items.FILLED_MAP);
-        posterStack.set(net.minecraft.component.DataComponentTypes.MAP_ID, new net.minecraft.component.type.MapIdComponent(mapIds[0]));
+    public static ItemStack createPosterMap(int[] mapIds, int width, int height, ServerWorld world) {
+        ItemStack posterStack = new ItemStack(Items.FILLED_MAP);
+        posterStack.set(DataComponentTypes.MAP_ID, new MapIdComponent(mapIds[0]));
 
-        // Store poster data in NBT
         net.minecraft.nbt.NbtCompound nbt = new net.minecraft.nbt.NbtCompound();
         nbt.putBoolean("isPoster", true);
         nbt.putInt("posterWidth", width);
         nbt.putInt("posterHeight", height);
-        net.minecraft.nbt.NbtIntArray mapIdsNbt = new net.minecraft.nbt.NbtIntArray(mapIds);
-        nbt.put("mapIds", mapIdsNbt);
-        posterStack.set(net.minecraft.component.DataComponentTypes.CUSTOM_DATA,
-                net.minecraft.component.type.NbtComponent.of(nbt));
+        nbt.put("mapIds", new net.minecraft.nbt.NbtIntArray(mapIds));
+        posterStack.set(DataComponentTypes.CUSTOM_DATA, net.minecraft.component.type.NbtComponent.of(nbt));
 
-        posterStack.set(net.minecraft.component.DataComponentTypes.LORE,
+        posterStack.set(DataComponentTypes.CUSTOM_NAME,
+                net.minecraft.text.Text.literal("Poster Map")
+                        .styled(s -> s.withColor(net.minecraft.util.Formatting.GOLD).withItalic(false).withBold(true)));
+        posterStack.set(DataComponentTypes.LORE,
                 new net.minecraft.component.type.LoreComponent(java.util.List.of(
                         net.minecraft.text.Text.literal("Size: " + width + "x" + height)
                                 .styled(s -> s.withColor(net.minecraft.util.Formatting.GRAY).withItalic(false)),
                         net.minecraft.text.Text.literal("Type: Poster")
+                                .styled(s -> s.withColor(net.minecraft.util.Formatting.GRAY).withItalic(false))
+                )));
+
+        return posterStack;
+    }
+
+    public static ItemStack createGifPosterMap(int[] mapIds, int width, int height, GifProcessor.GifData gifData, String gifKey) {
+        ItemStack posterStack = new ItemStack(Items.FILLED_MAP);
+        posterStack.set(DataComponentTypes.MAP_ID, new MapIdComponent(mapIds[0]));
+
+        net.minecraft.nbt.NbtCompound nbt = new net.minecraft.nbt.NbtCompound();
+        nbt.putBoolean("isPoster", true);
+        nbt.putBoolean("isGif", true);
+        nbt.putString("gifKey", gifKey);
+        nbt.putInt("posterWidth", width);
+        nbt.putInt("posterHeight", height);
+        nbt.put("mapIds", new net.minecraft.nbt.NbtIntArray(mapIds));
+        nbt.putInt("gifFrameCount", gifData.frames().length);
+        posterStack.set(DataComponentTypes.CUSTOM_DATA, net.minecraft.component.type.NbtComponent.of(nbt));
+
+        posterStack.set(DataComponentTypes.CUSTOM_NAME,
+                net.minecraft.text.Text.literal("Animated Poster Map")
+                        .styled(s -> s.withColor(net.minecraft.util.Formatting.AQUA).withItalic(false).withBold(true)));
+        posterStack.set(DataComponentTypes.LORE,
+                new net.minecraft.component.type.LoreComponent(java.util.List.of(
+                        net.minecraft.text.Text.literal("Size: " + width + "x" + height)
+                                .styled(s -> s.withColor(net.minecraft.util.Formatting.GRAY).withItalic(false)),
+                        net.minecraft.text.Text.literal("Type: Animated Poster")
+                                .styled(s -> s.withColor(net.minecraft.util.Formatting.GRAY).withItalic(false)),
+                        net.minecraft.text.Text.literal("Frames: " + gifData.frames().length)
                                 .styled(s -> s.withColor(net.minecraft.util.Formatting.GRAY).withItalic(false))
                 )));
 
@@ -74,7 +103,6 @@ public class MapCreator {
             if (dist < closestDist) {
                 closestDist = dist;
                 closest = (byte) i;
-
             }
         }
         return closest;

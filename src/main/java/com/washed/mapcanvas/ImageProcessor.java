@@ -4,14 +4,20 @@ import javax.imageio.ImageIO;
 import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
+import java.net.HttpURLConnection;
 import java.net.URI;
-import java.net.URL;
 
 public class ImageProcessor {
 
     public static BufferedImage downloadImage(String url) throws IOException {
-        URL imageUrl = URI.create(url).toURL();
-        BufferedImage img = ImageIO.read(imageUrl);
+        HttpURLConnection conn = (HttpURLConnection) URI.create(url).toURL().openConnection();
+        conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36");
+        conn.setRequestProperty("Accept", "image/gif,image/webp,image/*,*/*");
+        conn.setRequestProperty("Referer", "https://www.google.com/");
+        conn.setConnectTimeout(10000);
+        conn.setReadTimeout(10000);
+        conn.setInstanceFollowRedirects(true);
+        BufferedImage img = ImageIO.read(conn.getInputStream());
         if (img == null) throw new IOException("Could not read image from URL");
         return img;
     }

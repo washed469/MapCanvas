@@ -45,18 +45,27 @@ public class PosterHandler {
                 recentMessages.add(player.getUuid());
                 player.sendMessage(net.minecraft.text.Text.literal("Could not find a " + width + "x" + height + " grid of item frames here!"), false);
                 new Thread(() -> {
-                    try {
-                        Thread.sleep(100);
-                    } catch (Exception ignored) {
-                    }
+                    try { Thread.sleep(100); } catch (Exception ignored) {}
                     recentMessages.remove(player.getUuid());
                 }).start();
             }
             return false;
         }
 
-        placeAllMaps(world, topLeft, facing, width, height, mapIds);
+        placeAllMaps(world, topLeft, facing, width, height, mapIds, nbt);
         stack.decrement(1);
+
+        if (nbt.contains("isGif") && world instanceof net.minecraft.server.world.ServerWorld sw) {
+            String gifKey = nbt.getString("gifKey").orElse("");
+            if (!gifKey.isEmpty()) {
+                GifProcessor.GifData gifData = GifDataStore.load(sw.getServer(), gifKey);
+                if (gifData != null) {
+                    String key = AnimationManager.makeKey(topLeft, sw);
+                    AnimationManager.register(key, topLeft, sw, width, height, mapIds, gifData.frames(), gifData.delaysMs());
+                }
+            }
+        }
+
         return true;
     }
 
@@ -68,7 +77,6 @@ public class PosterHandler {
         ItemStack heldItem = clickedFrame.getHeldItemStack();
         if (!heldItem.isOf(Items.FILLED_MAP)) return false;
 
-        // Read grid size from the map's NBT
         NbtComponent nbtComponent = heldItem.get(DataComponentTypes.CUSTOM_DATA);
         if (nbtComponent == null) return false;
         NbtCompound sectionNbt = nbtComponent.copyNbt();
@@ -80,33 +88,46 @@ public class PosterHandler {
         int gridY = sectionNbt.getInt("gridY").orElse(0);
         if (bestWidth == 0 || bestHeight == 0) return false;
 
-// Calculate exact top-left from clicked position and grid offset
         Direction left = facing.rotateYClockwise();
         BlockPos bestTopLeft = framePos.offset(left, gridX).offset(Direction.UP, gridY);
 
         int[] mapIds = collectGridMapIds(world, bestTopLeft, facing, bestWidth, bestHeight);
         if (mapIds == null) return false;
 
+        if (world instanceof net.minecraft.server.world.ServerWorld sw) {
+            String key = AnimationManager.makeKey(bestTopLeft, sw);
+            AnimationManager.unregister(key);
+        }
+
         clearGrid(world, bestTopLeft, facing, bestWidth, bestHeight);
+
         ItemStack posterMap = new ItemStack(Items.FILLED_MAP);
         NbtCompound nbt = new NbtCompound();
         nbt.putBoolean("isPoster", true);
         nbt.putInt("posterWidth", bestWidth);
         nbt.putInt("posterHeight", bestHeight);
         nbt.putIntArray("mapIds", mapIds);
+
+        if (sectionNbt.contains("isGif")) {
+            nbt.putBoolean("isGif", true);
+            nbt.putString("gifKey", sectionNbt.getString("gifKey").orElse(""));
+            nbt.putInt("gifFrameCount", sectionNbt.getInt("gifFrameCount").orElse(0));
+        }
+
         posterMap.set(DataComponentTypes.CUSTOM_DATA, NbtComponent.of(nbt));
         posterMap.set(DataComponentTypes.CUSTOM_NAME,
-                net.minecraft.text.Text.literal("Poster Map")
-                        .styled(s -> s.withColor(net.minecraft.util.Formatting.GOLD)
+                net.minecraft.text.Text.literal(sectionNbt.contains("isGif") ? "Animated Poster Map" : "Poster Map")
+                        .styled(s -> s.withColor(sectionNbt.contains("isGif") ? net.minecraft.util.Formatting.AQUA : net.minecraft.util.Formatting.GOLD)
                                 .withItalic(false)
                                 .withBold(true)));
         posterMap.set(DataComponentTypes.LORE,
                 new net.minecraft.component.type.LoreComponent(java.util.List.of(
                         net.minecraft.text.Text.literal("Size: " + bestWidth + "x" + bestHeight)
                                 .styled(s -> s.withColor(net.minecraft.util.Formatting.GRAY).withItalic(false)),
-                        net.minecraft.text.Text.literal("Type: Poster")
+                        net.minecraft.text.Text.literal("Type: " + (sectionNbt.contains("isGif") ? "Animated Poster" : "Poster"))
                                 .styled(s -> s.withColor(net.minecraft.util.Formatting.GRAY).withItalic(false))
                 )));
+
         world.spawnEntity(new ItemEntity(world,
                 framePos.getX() + 0.5,
                 framePos.getY() + 0.5,
@@ -148,29 +169,17 @@ public class PosterHandler {
                 }
             }
         }
-        // Remove protection next tick
-        if (world instanceof net.minecraft.server.world.ServerWorld sw) {
-            sw.getServer().getTickManager();
-            sw.scheduleBlockTick(topLeft, net.minecraft.block.Blocks.AIR, 1);
-        }
-        // Actually just remove after 2 ticks using a thread
         new Thread(() -> {
-            try {
-                Thread.sleep(100);
-            } catch (Exception ignored) {
-            }
+            try { Thread.sleep(100); } catch (Exception ignored) {}
             collectingFrames.removeAll(ids);
         }).start();
     }
 
     private static BlockPos findTopLeft(World world, BlockPos clickedPos, Direction facing, int width, int height) {
         Direction left = facing.rotateYClockwise();
-
         for (int offX = 0; offX < width; offX++) {
             for (int offY = 0; offY < height; offY++) {
-                BlockPos candidate = clickedPos
-                        .offset(left, offX)
-                        .offset(Direction.UP, offY);
+                BlockPos candidate = clickedPos.offset(left, offX).offset(Direction.UP, offY);
                 if (isValidGrid(world, candidate, facing, width, height)) {
                     return candidate;
                 }
@@ -195,7 +204,7 @@ public class PosterHandler {
         return !frames.isEmpty();
     }
 
-    private static void placeAllMaps(World world, BlockPos topLeft, Direction facing, int width, int height, int[] mapIds) {
+    private static void placeAllMaps(World world, BlockPos topLeft, Direction facing, int width, int height, int[] mapIds, NbtCompound posterNbt) {
         Direction right = facing.rotateYCounterclockwise();
         for (int x = 0; x < width; x++) {
             for (int y = 0; y < height; y++) {
@@ -210,6 +219,11 @@ public class PosterHandler {
                     nbt.putInt("posterHeight", height);
                     nbt.putInt("gridX", x);
                     nbt.putInt("gridY", y);
+                    if (posterNbt.contains("isGif")) {
+                        nbt.putBoolean("isGif", true);
+                        nbt.putString("gifKey", posterNbt.getString("gifKey").orElse(""));
+                        nbt.putInt("gifFrameCount", posterNbt.getInt("gifFrameCount").orElse(0));
+                    }
                     mapStack.set(DataComponentTypes.CUSTOM_DATA, NbtComponent.of(nbt));
                     mapStack.set(DataComponentTypes.MAP_ID, new MapIdComponent(mapIds[y * width + x]));
                     frameEntity.setHeldItemStack(mapStack);

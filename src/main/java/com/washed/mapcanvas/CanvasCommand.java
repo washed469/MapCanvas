@@ -7,6 +7,7 @@ import com.mojang.brigadier.context.CommandContext;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.text.Text;
+import net.minecraft.util.Formatting;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -120,8 +121,59 @@ public class CanvasCommand {
 
         new Thread(() -> {
             try {
+                String resolvedUrl;
+                try {
+                    resolvedUrl = UrlResolver.resolve(url);
+                } catch (Exception e) {
+                    source.sendFeedback(() -> Text.literal("Could not load URL.")
+                            .styled(s -> s.withColor(Formatting.WHITE)), false);
+                    source.sendFeedback(() -> Text.literal(e.getMessage())
+                            .styled(s -> s.withColor(net.minecraft.util.Formatting.AQUA)), false);
+                    return;
+                }
+                if (!resolvedUrl.equals(url)) {
+                    source.sendFeedback(() -> Text.literal("Resolved URL from page..."), false);
+                }
+
+                if (GifProcessor.isGifUrl(resolvedUrl)) {
+                    if (!single) source.sendFeedback(() -> Text.literal("GIF detected — using poster mode automatically."), false);
+                    source.sendFeedback(() -> Text.literal("Processing GIF..."), false);
+                    GifProcessor.GifData gifData = GifProcessor.processGif(resolvedUrl, width, height);
+                    String gifKey = GifDataStore.save(source.getServer(), gifData);
+
+                    source.getServer().execute(() -> {
+                        try {
+                            net.minecraft.server.world.ServerWorld world = source.getWorld();
+                            int[] mapIds = new int[width * height];
+                            byte[] firstFrame = new byte[128 * 128];
+                            for (int i = 0; i < mapIds.length; i++) {
+                                System.arraycopy(gifData.frames()[0], i * 128 * 128, firstFrame, 0, 128 * 128);
+                                net.minecraft.item.map.MapState mapState = net.minecraft.item.map.MapState.of((byte) 0, true, world.getRegistryKey());
+                                net.minecraft.component.type.MapIdComponent mapId = world.increaseAndGetMapId();
+                                world.putMapState(mapId, mapState);
+                                System.arraycopy(firstFrame, 0, mapState.colors, 0, firstFrame.length);
+                                mapIds[i] = mapId.id();
+                            }
+
+                            net.minecraft.item.ItemStack posterMap = MapCreator.createGifPosterMap(mapIds, width, height, gifData, gifKey);
+                            player.getInventory().insertStack(posterMap);
+
+                            Map<String, Map<String, CanvasDataStore.CanvasEntry>> data = CanvasDataStore.load(source.getServer());
+                            String playerKey = player.getUuidAsString();
+                            data.computeIfAbsent(playerKey, k -> new HashMap<>())
+                                    .put("__last__", new CanvasDataStore.CanvasEntry("__last__", url, true, width, height, mapIds));
+                            CanvasDataStore.save(source.getServer(), data);
+
+                            source.sendFeedback(() -> Text.literal("Animated poster ready! Right click any corner of a " + width + "x" + height + " item frame grid."), false);
+                        } catch (Exception e) {
+                            source.sendFeedback(() -> Text.literal("Failed: " + e.getMessage()), false);
+                        }
+                    });
+                    return;
+                }
+
                 source.sendFeedback(() -> Text.literal("Downloading image..."), false);
-                java.awt.image.BufferedImage image = ImageProcessor.downloadImage(url);
+                java.awt.image.BufferedImage image = ImageProcessor.downloadImage(resolvedUrl);
 
                 java.awt.image.BufferedImage resized = ImageProcessor.resizeImage(image, width * 128, height * 128);
 
