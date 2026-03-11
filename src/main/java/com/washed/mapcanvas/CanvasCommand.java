@@ -4,10 +4,12 @@ import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.text.Text;
-import net.minecraft.util.Formatting;
+import net.minecraft.command.permission.Permission;
+import net.minecraft.command.permission.PermissionLevel;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -21,12 +23,22 @@ public class CanvasCommand {
                                 .then(CommandManager.argument("width", IntegerArgumentType.integer(1, 10))
                                         .then(CommandManager.argument("height", IntegerArgumentType.integer(1, 10))
                                                 .then(CommandManager.argument("url", StringArgumentType.greedyString())
-                                                        .executes(ctx -> addImage(ctx, false))))))
+                                                        .executes(ctx -> addImage(ctx, false, false))))))
+                        .then(CommandManager.literal("single-hd")
+                                .then(CommandManager.argument("width", IntegerArgumentType.integer(1, 10))
+                                        .then(CommandManager.argument("height", IntegerArgumentType.integer(1, 10))
+                                                .then(CommandManager.argument("url", StringArgumentType.greedyString())
+                                                        .executes(ctx -> addImage(ctx, false, true))))))
                         .then(CommandManager.literal("poster")
                                 .then(CommandManager.argument("width", IntegerArgumentType.integer(1, 10))
                                         .then(CommandManager.argument("height", IntegerArgumentType.integer(1, 10))
                                                 .then(CommandManager.argument("url", StringArgumentType.greedyString())
-                                                        .executes(ctx -> addImage(ctx, true)))))))
+                                                        .executes(ctx -> addImage(ctx, true, false))))))
+                        .then(CommandManager.literal("poster-hd")
+                                .then(CommandManager.argument("width", IntegerArgumentType.integer(1, 10))
+                                        .then(CommandManager.argument("height", IntegerArgumentType.integer(1, 10))
+                                                .then(CommandManager.argument("url", StringArgumentType.greedyString())
+                                                        .executes(ctx -> addImage(ctx, true, true)))))))
                 .then(CommandManager.literal("name")
                         .then(CommandManager.argument("name", StringArgumentType.string())
                                 .executes(ctx -> nameImage(ctx))))
@@ -38,16 +50,32 @@ public class CanvasCommand {
                 .then(CommandManager.literal("reload")
                         .then(CommandManager.argument("name", StringArgumentType.string())
                                 .executes(ctx -> reloadImage(ctx))))
-                .then(CommandManager.literal("give")
-                        .then(CommandManager.argument("player", StringArgumentType.string())
-                                .then(CommandManager.argument("name", StringArgumentType.string())
-                                        .executes(ctx -> giveImage(ctx)))))
                 .then(CommandManager.literal("convert")
                         .then(CommandManager.argument("name", StringArgumentType.string())
                                 .executes(ctx -> convertImage(ctx))))
                 .then(CommandManager.literal("help")
                         .executes(ctx -> showHelp(ctx)))
+                .then(CommandManager.literal("cost")
+                        .requires(src -> src.getPermissions().hasPermission(new Permission.Level(PermissionLevel.GAMEMASTERS)))
+                        .then(CommandManager.literal("enable")
+                                .executes(ctx -> setCost(ctx, true)))
+                        .then(CommandManager.literal("disable")
+                                .executes(ctx -> setCost(ctx, false))))
         );
+    }
+
+    private static boolean costEnabled = true;
+
+    public static void loadConfig(MinecraftServer server) {
+        costEnabled = MapCanvasConfig.loadCostEnabled(server);
+    }
+
+    private static int setCost(CommandContext<ServerCommandSource> ctx, boolean enable) {
+        costEnabled = enable;
+        MapCanvasConfig.saveCostEnabled(ctx.getSource().getServer(), enable);
+        ctx.getSource().sendFeedback(() -> Text.literal("Map cost " + (enable ? "enabled" : "disabled") + ".")
+                .styled(s -> s.withColor(enable ? net.minecraft.util.Formatting.GREEN : net.minecraft.util.Formatting.RED)), true);
+        return 1;
     }
 
     private static int showHelp(CommandContext<ServerCommandSource> ctx) {
@@ -55,8 +83,12 @@ public class CanvasCommand {
         source.sendFeedback(() -> Text.literal("--- MapCanvas Commands ---").styled(s -> s.withColor(net.minecraft.util.Formatting.GOLD).withBold(true)), false);
         source.sendFeedback(() -> Text.literal("/canvas add single <w> <h> <url>").styled(s -> s.withColor(net.minecraft.util.Formatting.YELLOW))
                 .append(Text.literal(" - Gives individual maps for a WxH grid").styled(s -> s.withColor(net.minecraft.util.Formatting.GRAY))), false);
+        source.sendFeedback(() -> Text.literal("/canvas add single-hd <w> <h> <url>").styled(s -> s.withColor(net.minecraft.util.Formatting.YELLOW))
+                .append(Text.literal(" - Same as single with dithering for smoother colors").styled(s -> s.withColor(net.minecraft.util.Formatting.GRAY))), false);
         source.sendFeedback(() -> Text.literal("/canvas add poster <w> <h> <url>").styled(s -> s.withColor(net.minecraft.util.Formatting.YELLOW))
                 .append(Text.literal(" - Gives 1 poster map that auto-fills a WxH grid").styled(s -> s.withColor(net.minecraft.util.Formatting.GRAY))), false);
+        source.sendFeedback(() -> Text.literal("/canvas add poster-hd <w> <h> <url>").styled(s -> s.withColor(net.minecraft.util.Formatting.YELLOW))
+                .append(Text.literal(" - Same as poster with dithering for smoother colors").styled(s -> s.withColor(net.minecraft.util.Formatting.GRAY))), false);
         source.sendFeedback(() -> Text.literal("/canvas name <n>").styled(s -> s.withColor(net.minecraft.util.Formatting.YELLOW))
                 .append(Text.literal(" - Saves the last created image").styled(s -> s.withColor(net.minecraft.util.Formatting.GRAY))), false);
         source.sendFeedback(() -> Text.literal("/canvas list").styled(s -> s.withColor(net.minecraft.util.Formatting.YELLOW))
@@ -69,6 +101,8 @@ public class CanvasCommand {
                 .append(Text.literal(" - Deletes a saved image").styled(s -> s.withColor(net.minecraft.util.Formatting.GRAY))), false);
         source.sendFeedback(() -> Text.literal("/canvas give <player> <n>").styled(s -> s.withColor(net.minecraft.util.Formatting.YELLOW))
                 .append(Text.literal(" - Gives your saved image to another player").styled(s -> s.withColor(net.minecraft.util.Formatting.GRAY))), false);
+        source.sendFeedback(() -> Text.literal("/canvas cost <enable|disable>").styled(s -> s.withColor(net.minecraft.util.Formatting.YELLOW))
+                .append(Text.literal(" - Enable or disable the map cost (ops only)").styled(s -> s.withColor(net.minecraft.util.Formatting.GRAY))), false);
         source.sendFeedback(() -> Text.literal("Cost: width x height empty maps per /canvas add").styled(s -> s.withColor(net.minecraft.util.Formatting.DARK_GRAY).withItalic(true)), false);
         return 1;
     }
@@ -96,7 +130,7 @@ public class CanvasCommand {
         }
     }
 
-    private static int addImage(CommandContext<ServerCommandSource> ctx, boolean single) {
+    private static int addImage(CommandContext<ServerCommandSource> ctx, boolean single, boolean dither) {
         String url = StringArgumentType.getString(ctx, "url");
         int width = IntegerArgumentType.getInteger(ctx, "width");
         int height = IntegerArgumentType.getInteger(ctx, "height");
@@ -107,7 +141,7 @@ public class CanvasCommand {
 
         int cost = width * height;
         boolean creative = player.isCreative();
-        if (!creative) {
+        if (costEnabled && !creative) {
             int held = countEmptyMaps(player);
             if (held < cost) {
                 source.sendFeedback(() -> Text.literal(
@@ -126,7 +160,7 @@ public class CanvasCommand {
                     resolvedUrl = UrlResolver.resolve(url);
                 } catch (Exception e) {
                     source.sendFeedback(() -> Text.literal("Could not load URL.")
-                            .styled(s -> s.withColor(Formatting.WHITE)), false);
+                            .styled(s -> s.withColor(net.minecraft.util.Formatting.RED)), false);
                     source.sendFeedback(() -> Text.literal(e.getMessage())
                             .styled(s -> s.withColor(net.minecraft.util.Formatting.AQUA)), false);
                     return;
@@ -186,10 +220,10 @@ public class CanvasCommand {
                         if (single) {
                             int[] mapIds = new int[sections.length];
                             for (int i = 0; i < sections.length; i++) {
-                                net.minecraft.item.ItemStack mapStack = MapCreator.createMapFromImage(sections[i], world);
+                                net.minecraft.item.ItemStack mapStack = MapCreator.createMapFromImage(sections[i], world, dither);
                                 mapIds[i] = mapStack.get(net.minecraft.component.DataComponentTypes.MAP_ID).id();
                             }
-                            net.minecraft.item.ItemStack posterMap = MapCreator.createPosterMap(mapIds, width, height, world);
+                            net.minecraft.item.ItemStack posterMap = MapCreator.createPosterMap(mapIds, width, height, world, dither);
                             player.getInventory().insertStack(posterMap);
 
                             Map<String, Map<String, CanvasDataStore.CanvasEntry>> data = CanvasDataStore.load(source.getServer());
@@ -202,13 +236,13 @@ public class CanvasCommand {
                         } else {
                             int[] mapIds = new int[sections.length];
                             for (int i = 0; i < sections.length; i++) {
-                                net.minecraft.item.ItemStack mapStack = MapCreator.createMapFromImage(sections[i], world);
+                                net.minecraft.item.ItemStack mapStack = MapCreator.createMapFromImage(sections[i], world, dither);
                                 mapIds[i] = mapStack.get(net.minecraft.component.DataComponentTypes.MAP_ID).id();
                                 mapStack.set(net.minecraft.component.DataComponentTypes.LORE,
                                         new net.minecraft.component.type.LoreComponent(java.util.List.of(
                                                 net.minecraft.text.Text.literal("Size: " + width + "x" + height)
                                                         .styled(s -> s.withColor(net.minecraft.util.Formatting.GRAY).withItalic(false)),
-                                                net.minecraft.text.Text.literal("Type: Single")
+                                                net.minecraft.text.Text.literal("Type: " + (dither ? "Single HD" : "Single"))
                                                         .styled(s -> s.withColor(net.minecraft.util.Formatting.GRAY).withItalic(false)),
                                                 net.minecraft.text.Text.literal("Map: " + (i + 1) + "/" + sections.length)
                                                         .styled(s -> s.withColor(net.minecraft.util.Formatting.GRAY).withItalic(false))
@@ -231,7 +265,7 @@ public class CanvasCommand {
                     }
                 });
             } catch (Exception e) {
-                if (!creative) {
+                if (costEnabled && !creative) {
                     net.minecraft.item.ItemStack refund = new net.minecraft.item.ItemStack(net.minecraft.item.Items.MAP, cost);
                     source.getServer().execute(() -> {
                         if (!player.getInventory().insertStack(refund)) {
@@ -350,7 +384,7 @@ public class CanvasCommand {
                         net.minecraft.server.world.ServerWorld world = source.getWorld();
                         int[] mapIds = new int[sections.length];
                         for (int i = 0; i < sections.length; i++) {
-                            net.minecraft.item.ItemStack mapStack = MapCreator.createMapFromImage(sections[i], world);
+                            net.minecraft.item.ItemStack mapStack = MapCreator.createMapFromImage(sections[i], world, false);
                             mapIds[i] = mapStack.get(net.minecraft.component.DataComponentTypes.MAP_ID).id();
                         }
                         Map<String, Map<String, CanvasDataStore.CanvasEntry>> updatedData = CanvasDataStore.load(source.getServer());
@@ -418,7 +452,7 @@ public class CanvasCommand {
             player.getInventory().getStack(slot).decrement(1);
         }
 
-        net.minecraft.item.ItemStack posterMap = MapCreator.createPosterMap(requiredIds, entry.width(), entry.height(), source.getWorld());
+        net.minecraft.item.ItemStack posterMap = MapCreator.createPosterMap(requiredIds, entry.width(), entry.height(), source.getWorld(), false);
         if (!player.getInventory().insertStack(posterMap)) {
             player.dropItem(posterMap, false);
         }
@@ -463,14 +497,14 @@ public class CanvasCommand {
                         if (entry.single()) {
                             int[] mapIds = new int[sections.length];
                             for (int i = 0; i < sections.length; i++) {
-                                net.minecraft.item.ItemStack mapStack = MapCreator.createMapFromImage(sections[i], world);
+                                net.minecraft.item.ItemStack mapStack = MapCreator.createMapFromImage(sections[i], world, false);
                                 mapIds[i] = mapStack.get(net.minecraft.component.DataComponentTypes.MAP_ID).id();
                             }
-                            net.minecraft.item.ItemStack posterMap = MapCreator.createPosterMap(mapIds, entry.width(), entry.height(), world);
+                            net.minecraft.item.ItemStack posterMap = MapCreator.createPosterMap(mapIds, entry.width(), entry.height(), world, false);
                             target.getInventory().insertStack(posterMap);
                         } else {
                             for (java.awt.image.BufferedImage section : sections) {
-                                target.getInventory().insertStack(MapCreator.createMapFromImage(section, world));
+                                target.getInventory().insertStack(MapCreator.createMapFromImage(section, world, false));
                             }
                         }
                         source.sendFeedback(() -> Text.literal("Gave \"" + name + "\" to " + targetName + "!"), false);

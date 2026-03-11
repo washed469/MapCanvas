@@ -28,6 +28,7 @@ public class Mapcanvas implements ModInitializer {
         ServerTickEvents.END_SERVER_TICK.register(server -> {
             if (!restored) {
                 restored = true;
+                CanvasCommand.loadConfig(server);
                 restoreAnimatedPosters(server);
             }
             AnimationManager.tick();

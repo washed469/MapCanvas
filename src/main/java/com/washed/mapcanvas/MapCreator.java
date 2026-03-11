@@ -11,18 +11,15 @@ import java.awt.image.BufferedImage;
 
 public class MapCreator {
 
-    public static ItemStack createMapFromImage(BufferedImage image, ServerWorld world) {
+    public static ItemStack createMapFromImage(BufferedImage image, ServerWorld world, boolean dither) {
         MapState mapState = MapState.of((byte) 0, true, world.getRegistryKey());
         MapIdComponent mapId = world.increaseAndGetMapId();
         world.putMapState(mapId, mapState);
 
+        byte[] colors = dither ? Dithering.ditherToMapColors(image) : toMapColors(image);
         for (int x = 0; x < 128; x++) {
             for (int z = 0; z < 128; z++) {
-                int rgb = image.getRGB(x, z);
-                int r = (rgb >> 16) & 0xFF;
-                int g = (rgb >> 8) & 0xFF;
-                int b = rgb & 0xFF;
-                mapState.setColor(x, z, closestMapColor(r, g, b));
+                mapState.setColor(x, z, colors[z * 128 + x]);
             }
         }
 
@@ -31,7 +28,21 @@ public class MapCreator {
         return mapStack;
     }
 
-    public static ItemStack createPosterMap(int[] mapIds, int width, int height, ServerWorld world) {
+    private static byte[] toMapColors(BufferedImage image) {
+        byte[] colors = new byte[128 * 128];
+        for (int x = 0; x < 128; x++) {
+            for (int z = 0; z < 128; z++) {
+                int rgb = image.getRGB(x, z);
+                int r = (rgb >> 16) & 0xFF;
+                int g = (rgb >> 8) & 0xFF;
+                int b = rgb & 0xFF;
+                colors[z * 128 + x] = closestMapColor(r, g, b);
+            }
+        }
+        return colors;
+    }
+
+    public static ItemStack createPosterMap(int[] mapIds, int width, int height, ServerWorld world, boolean dither) {
         ItemStack posterStack = new ItemStack(Items.FILLED_MAP);
         posterStack.set(DataComponentTypes.MAP_ID, new MapIdComponent(mapIds[0]));
 
@@ -49,7 +60,7 @@ public class MapCreator {
                 new net.minecraft.component.type.LoreComponent(java.util.List.of(
                         net.minecraft.text.Text.literal("Size: " + width + "x" + height)
                                 .styled(s -> s.withColor(net.minecraft.util.Formatting.GRAY).withItalic(false)),
-                        net.minecraft.text.Text.literal("Type: Poster")
+                        net.minecraft.text.Text.literal("Type: " + (dither ? "Poster HD" : "Poster"))
                                 .styled(s -> s.withColor(net.minecraft.util.Formatting.GRAY).withItalic(false))
                 )));
 

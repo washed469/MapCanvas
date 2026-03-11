@@ -15,33 +15,13 @@ public class GifProcessor {
     public static final int MAX_FPS = 10;
     public static final int MIN_FRAME_DELAY_MS = 1000 / MAX_FPS;
 
-    private static final int[] COLOR_CACHE_R = new int[256 * 256 * 256];
-    private static final byte[] COLOR_CACHE = new byte[256 * 256 * 256];
-    private static volatile boolean cacheBuilt = false;
-
     public record GifData(byte[][] frames, int[] delaysMs, int width, int height) {}
 
     public static boolean isGifUrl(String url) {
         return url.toLowerCase().contains(".gif");
     }
 
-    private static void buildCacheIfNeeded() {
-        if (cacheBuilt) return;
-        synchronized (GifProcessor.class) {
-            if (cacheBuilt) return;
-            for (int r = 0; r < 256; r++) {
-                for (int g = 0; g < 256; g++) {
-                    for (int b = 0; b < 256; b++) {
-                        COLOR_CACHE[(r << 16) | (g << 8) | b] = computeClosestMapColor(r, g, b);
-                    }
-                }
-            }
-            cacheBuilt = true;
-        }
-    }
-
     public static GifData processGif(String url, int cols, int rows) throws IOException {
-        buildCacheIfNeeded();
 
         java.net.HttpURLConnection gifConn = (java.net.HttpURLConnection) URI.create(url).toURL().openConnection();
         gifConn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36");
@@ -128,38 +108,7 @@ public class GifProcessor {
     }
 
     public static byte[] imageToMapColors(BufferedImage image) {
-        byte[] colors = new byte[128 * 128];
-        for (int x = 0; x < 128; x++) {
-            for (int z = 0; z < 128; z++) {
-                int rgb = image.getRGB(x, z);
-                int r = (rgb >> 16) & 0xFF;
-                int g = (rgb >> 8) & 0xFF;
-                int b = rgb & 0xFF;
-                colors[z * 128 + x] = COLOR_CACHE[(r << 16) | (g << 8) | b];
-            }
-        }
-        return colors;
-    }
-
-    private static byte computeClosestMapColor(int r, int g, int b) {
-        byte closest = 4;
-        double closestDist = Double.MAX_VALUE;
-        for (int i = 4; i < 256; i++) {
-            int base = i >> 2;
-            int shade = i & 3;
-            if (base >= MapColorPalette.COLORS.length) continue;
-            int[] baseColor = MapColorPalette.COLORS[base];
-            float multiplier = MapColorPalette.MULTIPLIERS[shade];
-            int mr = (int)(baseColor[0] * multiplier);
-            int mg = (int)(baseColor[1] * multiplier);
-            int mb = (int)(baseColor[2] * multiplier);
-            double dist = Math.pow(r - mr, 2) + Math.pow(g - mg, 2) + Math.pow(b - mb, 2);
-            if (dist < closestDist) {
-                closestDist = dist;
-                closest = (byte) i;
-            }
-        }
-        return closest;
+        return Dithering.ditherToMapColors(image);
     }
 
     private static int[] extractFrameOffset(IIOMetadata meta) {
@@ -245,4 +194,4 @@ public class GifProcessor {
         }
         return MIN_FRAME_DELAY_MS;
     }
-}
+}   

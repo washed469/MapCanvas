@@ -45,7 +45,7 @@ public class PosterHandler {
                 recentMessages.add(player.getUuid());
                 player.sendMessage(net.minecraft.text.Text.literal("Could not find a " + width + "x" + height + " grid of item frames here!"), false);
                 new Thread(() -> {
-                    try { Thread.sleep(100); } catch (Exception ignored) {}
+                    try { Thread.sleep(500); } catch (Exception ignored) {}
                     recentMessages.remove(player.getUuid());
                 }).start();
             }
@@ -193,7 +193,9 @@ public class PosterHandler {
         for (int x = 0; x < width; x++) {
             for (int y = 0; y < height; y++) {
                 BlockPos pos = topLeft.offset(right, x).offset(Direction.DOWN, y);
-                if (!hasItemFrame(world, pos)) return false;
+                List<ItemFrameEntity> frames = world.getEntitiesByClass(ItemFrameEntity.class, new Box(pos), e -> true);
+                if (frames.isEmpty()) return false;
+                if (!frames.get(0).getHeldItemStack().isEmpty()) return false;
             }
         }
         return true;
