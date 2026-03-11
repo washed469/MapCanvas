@@ -6,8 +6,8 @@
   "description": "Display images and animated GIFs on maps in item frames.",
   "authors": ["washed469"],
   "contact": {
-    "homepage": "https://github.com/washed469/MapCanvas",
-    "sources": "https://github.com/washed469/MapCanvas"
+    "homepage": "https://modrinth.com/mod/mapcanvas",
+    "sources": "https://modrinth.com/mod/mapcanvas"
   },
   "license": "LGPL-3.0-only",
   "icon": "assets/mapcanvas/icon.png",
