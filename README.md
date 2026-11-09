@@ -60,9 +60,10 @@ Creating a canvas costs **empty maps** equal to the grid size (W × H). Players 
 
 ## Requirements
 
-- Minecraft 1.21.1
-- Fabric Loader
+- Minecraft 26.3
+- Fabric Loader (0.20.1 or newer)
 - Fabric API
+- Java 25 or newer
 
 >  **Required on both client and server.**
 

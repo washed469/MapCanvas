@@ -1,11 +1,12 @@
 package com.washed.mapcanvas;
 
-import net.minecraft.item.map.MapState;
-import net.minecraft.network.packet.s2c.play.MapUpdateS2CPacket;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.server.world.ServerWorld;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Box;
+import net.minecraft.world.level.saveddata.maps.MapItemSavedData;
+import net.minecraft.network.protocol.game.ClientboundMapItemDataPacket;
+import net.minecraft.world.level.entity.EntityTypeTest;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.phys.AABB;
 
 import java.util.*;
 
@@ -16,7 +17,7 @@ public class AnimationManager {
 
     private record AnimatedPoster(
             BlockPos topLeft,
-            ServerWorld world,
+            ServerLevel world,
             int cols,
             int rows,
             int[] mapIds,
@@ -29,7 +30,7 @@ public class AnimationManager {
     private static final Map<String, Integer> currentFrame = new HashMap<>();
     private static final Map<String, Long> nextFrameTime = new HashMap<>();
 
-    public static void register(String key, BlockPos topLeft, ServerWorld world, int cols, int rows, int[] mapIds, byte[][] frames, int[] delaysMs) {
+    public static void register(String key, BlockPos topLeft, ServerLevel world, int cols, int rows, int[] mapIds, byte[][] frames, int[] delaysMs) {
         boolean[][] dirtyTiles = precomputeDirtyTiles(frames, cols * rows);
         activePosterMap.put(key, new AnimatedPoster(topLeft, world, cols, rows, mapIds, frames, delaysMs, dirtyTiles));
         currentFrame.put(key, 0);
@@ -73,19 +74,21 @@ public class AnimationManager {
 
             if (now < nextFrameTime.get(key)) continue;
 
-            List<ServerPlayerEntity> nearbyPlayers = poster.world().getEntitiesByClass(
-                    ServerPlayerEntity.class,
-                    new Box(poster.topLeft()).expand(RANGE),
+            List<ServerPlayer> nearbyPlayers = poster.world().getEntities(
+                    EntityTypeTest.forClass(ServerPlayer.class),
+                    new AABB(poster.topLeft().getX(), poster.topLeft().getY(), poster.topLeft().getZ(), poster.topLeft().getX() + 1, poster.topLeft().getY() + 1, poster.topLeft().getZ() + 1).inflate(RANGE),
                     p -> true
             );
 
             if (nearbyPlayers.isEmpty()) continue;
 
-            List<ServerPlayerEntity> closePlayers = poster.world().getEntitiesByClass(
-                    ServerPlayerEntity.class,
-                    new Box(poster.topLeft()).expand(32),
-                    p -> true
-            );
+            AABB closeRange = new AABB(
+                    poster.topLeft().getX(), poster.topLeft().getY(), poster.topLeft().getZ(),
+                    poster.topLeft().getX() + 1, poster.topLeft().getY() + 1, poster.topLeft().getZ() + 1
+            ).inflate(32);
+            List<ServerPlayer> closePlayers = nearbyPlayers.stream()
+                    .filter(player -> player.getBoundingBox().intersects(closeRange))
+                    .toList();
 
             int frame = currentFrame.get(key);
             byte[] frameBytes = poster.frames()[frame];
@@ -97,16 +100,16 @@ public class AnimationManager {
                 int mapId = poster.mapIds()[i];
                 byte[] mapBytes = Arrays.copyOfRange(frameBytes, i * 128 * 128, (i + 1) * 128 * 128);
 
-                MapUpdateS2CPacket packet = new MapUpdateS2CPacket(
-                        new net.minecraft.component.type.MapIdComponent(mapId),
+                ClientboundMapItemDataPacket packet = new ClientboundMapItemDataPacket(
+                        new net.minecraft.world.level.saveddata.maps.MapId(mapId),
                         (byte) 0,
                         false,
                         null,
-                        new MapState.UpdateData(0, 0, 128, 128, mapBytes)
+                        new MapItemSavedData.MapPatch(0, 0, 128, 128, mapBytes)
                 );
 
-                for (ServerPlayerEntity player : closePlayers) {
-                    player.networkHandler.sendPacket(packet);
+                for (ServerPlayer player : closePlayers) {
+                    player.connection.send(packet);
                 }
             }
 
@@ -116,7 +119,7 @@ public class AnimationManager {
         }
     }
 
-    public static String makeKey(BlockPos topLeft, ServerWorld world) {
-        return world.getRegistryKey().getValue() + ":" + topLeft.getX() + "," + topLeft.getY() + "," + topLeft.getZ();
+    public static String makeKey(BlockPos topLeft, ServerLevel world) {
+        return world.dimension().identifier() + ":" + topLeft.getX() + "," + topLeft.getY() + "," + topLeft.getZ();
     }
 }

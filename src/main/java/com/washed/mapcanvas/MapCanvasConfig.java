@@ -10,7 +10,7 @@ import java.nio.file.Path;
 public class MapCanvasConfig {
 
     private static Path getConfigPath(MinecraftServer server) {
-        return server.getSavePath(net.minecraft.util.WorldSavePath.ROOT).resolve("mapcanvas_config.json");
+        return server.getWorldPath(net.minecraft.world.level.storage.LevelResource.ROOT).resolve("mapcanvas_config.json");
     }
 
     public static boolean loadCostEnabled(MinecraftServer server) {

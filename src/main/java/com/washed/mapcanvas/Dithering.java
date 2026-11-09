@@ -4,58 +4,80 @@ import java.awt.image.BufferedImage;
 
 public class Dithering {
 
+    private static final int[] MAP_RED = new int[256];
+    private static final int[] MAP_GREEN = new int[256];
+    private static final int[] MAP_BLUE = new int[256];
+    private static final boolean[] VALID_MAP_COLOR = new boolean[256];
+
+    static {
+        for (int i = 4; i < 256; i++) {
+            int base = i >> 2;
+            if (base >= MapColorPalette.COLORS.length) continue;
+            int[] rgb = MapColorPalette.COLORS[base];
+            float multiplier = MapColorPalette.MULTIPLIERS[i & 3];
+            MAP_RED[i] = (int) (rgb[0] * multiplier);
+            MAP_GREEN[i] = (int) (rgb[1] * multiplier);
+            MAP_BLUE[i] = (int) (rgb[2] * multiplier);
+            VALID_MAP_COLOR[i] = true;
+        }
+    }
+
     public static byte[] ditherToMapColors(BufferedImage image) {
         int w = image.getWidth();
         int h = image.getHeight();
+        int size = w * h;
 
-        float[][] r = new float[w][h];
-        float[][] g = new float[w][h];
-        float[][] b = new float[w][h];
-
-        for (int x = 0; x < w; x++) {
-            for (int y = 0; y < h; y++) {
-                int rgb = image.getRGB(x, y);
-                r[x][y] = (rgb >> 16) & 0xFF;
-                g[x][y] = (rgb >> 8) & 0xFF;
-                b[x][y] = rgb & 0xFF;
-            }
-        }
-
-        byte[] result = new byte[w * h];
+        // Flat row-major buffers avoid thousands of small row-array objects and
+        // keep the pixel walk and Floyd-Steinberg writes cache-friendly.
+        float[] r = new float[size];
+        float[] g = new float[size];
+        float[] b = new float[size];
 
         for (int y = 0; y < h; y++) {
             for (int x = 0; x < w; x++) {
-                int ri = clamp((int) r[x][y]);
-                int gi = clamp((int) g[x][y]);
-                int bi = clamp((int) b[x][y]);
+                int index = y * w + x;
+                int rgb = image.getRGB(x, y);
+                r[index] = (rgb >> 16) & 0xFF;
+                g[index] = (rgb >> 8) & 0xFF;
+                b[index] = rgb & 0xFF;
+            }
+        }
+
+        byte[] result = new byte[size];
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                int index = y * w + x;
+                int ri = clamp((int) r[index]);
+                int gi = clamp((int) g[index]);
+                int bi = clamp((int) b[index]);
 
                 byte mapColor = closestMapColor(ri, gi, bi);
-                result[y * w + x] = mapColor;
+                result[index] = mapColor;
 
-                int[] actual = getMapColorRgb(mapColor);
-                float errR = (ri - actual[0]) * 0.3f;
-                float errG = (gi - actual[1]) * 0.3f;
-                float errB = (bi - actual[2]) * 0.3f;
+                int mapIndex = mapColor & 0xFF;
+                float errR = (ri - MAP_RED[mapIndex]) * 0.3f;
+                float errG = (gi - MAP_GREEN[mapIndex]) * 0.3f;
+                float errB = (bi - MAP_BLUE[mapIndex]) * 0.3f;
 
                 if (x + 1 < w) {
-                    r[x+1][y] += errR * 7f / 16f;
-                    g[x+1][y] += errG * 7f / 16f;
-                    b[x+1][y] += errB * 7f / 16f;
+                    r[index + 1] += errR * 7f / 16f;
+                    g[index + 1] += errG * 7f / 16f;
+                    b[index + 1] += errB * 7f / 16f;
                 }
-                if (x - 1 >= 0 && y + 1 < h) {
-                    r[x-1][y+1] += errR * 3f / 16f;
-                    g[x-1][y+1] += errG * 3f / 16f;
-                    b[x-1][y+1] += errB * 3f / 16f;
+                if (x > 0 && y + 1 < h) {
+                    r[index + w - 1] += errR * 3f / 16f;
+                    g[index + w - 1] += errG * 3f / 16f;
+                    b[index + w - 1] += errB * 3f / 16f;
                 }
                 if (y + 1 < h) {
-                    r[x][y+1] += errR * 5f / 16f;
-                    g[x][y+1] += errG * 5f / 16f;
-                    b[x][y+1] += errB * 5f / 16f;
+                    r[index + w] += errR * 5f / 16f;
+                    g[index + w] += errG * 5f / 16f;
+                    b[index + w] += errB * 5f / 16f;
                 }
                 if (x + 1 < w && y + 1 < h) {
-                    r[x+1][y+1] += errR * 1f / 16f;
-                    g[x+1][y+1] += errG * 1f / 16f;
-                    b[x+1][y+1] += errB * 1f / 16f;
+                    r[index + w + 1] += errR / 16f;
+                    g[index + w + 1] += errG / 16f;
+                    b[index + w + 1] += errB / 16f;
                 }
             }
         }
@@ -67,33 +89,15 @@ public class Dithering {
         return Math.max(0, Math.min(255, v));
     }
 
-    private static int[] getMapColorRgb(byte mapColor) {
-        int i = mapColor & 0xFF;
-        int base = i >> 2;
-        int shade = i & 3;
-        if (base >= MapColorPalette.COLORS.length) return new int[]{0, 0, 0};
-        int[] baseColor = MapColorPalette.COLORS[base];
-        float multiplier = MapColorPalette.MULTIPLIERS[shade];
-        return new int[]{
-                (int)(baseColor[0] * multiplier),
-                (int)(baseColor[1] * multiplier),
-                (int)(baseColor[2] * multiplier)
-        };
-    }
-
     private static byte closestMapColor(int r, int g, int b) {
         byte closest = 4;
-        double closestDist = Double.MAX_VALUE;
+        int closestDist = Integer.MAX_VALUE;
         for (int i = 4; i < 256; i++) {
-            int base = i >> 2;
-            int shade = i & 3;
-            if (base >= MapColorPalette.COLORS.length) continue;
-            int[] baseColor = MapColorPalette.COLORS[base];
-            float multiplier = MapColorPalette.MULTIPLIERS[shade];
-            int mr = (int)(baseColor[0] * multiplier);
-            int mg = (int)(baseColor[1] * multiplier);
-            int mb = (int)(baseColor[2] * multiplier);
-            double dist = Math.pow(r - mr, 2) + Math.pow(g - mg, 2) + Math.pow(b - mb, 2);
+            if (!VALID_MAP_COLOR[i]) continue;
+            int dr = r - MAP_RED[i];
+            int dg = g - MAP_GREEN[i];
+            int db = b - MAP_BLUE[i];
+            int dist = dr * dr + dg * dg + db * db;
             if (dist < closestDist) {
                 closestDist = dist;
                 closest = (byte) i;

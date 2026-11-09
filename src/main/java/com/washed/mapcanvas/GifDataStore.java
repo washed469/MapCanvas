@@ -9,7 +9,7 @@ import java.util.UUID;
 public class GifDataStore {
 
     private static Path getDir(MinecraftServer server) {
-        Path dir = server.getSavePath(net.minecraft.util.WorldSavePath.ROOT).resolve("mapcanvas_gifs");
+        Path dir = server.getWorldPath(net.minecraft.world.level.storage.LevelResource.ROOT).resolve("mapcanvas_gifs");
         dir.toFile().mkdirs();
         return dir;
     }

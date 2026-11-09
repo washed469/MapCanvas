@@ -4,6 +4,7 @@
   "package": "com.washed.mapcanvas.mixin.client",
   "compatibilityLevel": "JAVA_21",
   "client": [
+    "ClientPacketListenerMixin"
   ],
   "injectors": {
     "defaultRequire": 1

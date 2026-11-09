@@ -11,13 +11,13 @@ public class CanvasDataStore {
 
     public record CanvasEntry(String name, String url, boolean single, int width, int height, int[] mapIds) {}
 
-    private static Path getSavePath(MinecraftServer server) {
-        return server.getSavePath(net.minecraft.util.WorldSavePath.ROOT).resolve("mapcanvas_data.json");
+    private static Path getWorldPath(MinecraftServer server) {
+        return server.getWorldPath(net.minecraft.world.level.storage.LevelResource.ROOT).resolve("mapcanvas_data.json");
     }
 
     public static Map<String, Map<String, CanvasEntry>> load(MinecraftServer server) {
         Map<String, Map<String, CanvasEntry>> data = new HashMap<>();
-        Path path = getSavePath(server);
+        Path path = getWorldPath(server);
         if (!path.toFile().exists()) return data;
         try (Reader reader = new FileReader(path.toFile())) {
             JsonObject root = JsonParser.parseReader(reader).getAsJsonObject();
@@ -46,7 +46,7 @@ public class CanvasDataStore {
     }
 
     public static void save(MinecraftServer server, Map<String, Map<String, CanvasEntry>> data) {
-        Path path = getSavePath(server);
+        Path path = getWorldPath(server);
         try (Writer writer = new FileWriter(path.toFile())) {
             JsonObject root = new JsonObject();
             for (Map.Entry<String, Map<String, CanvasEntry>> playerEntry : data.entrySet()) {
